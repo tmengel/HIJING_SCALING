@@ -80,10 +80,14 @@ int plot_tower_energy_comp(
         double sum1 = 0, sum2 = 0;
         int n1 = 0, n2 = 0;
 
+        std::vector<double> sumeT1, sumeT2; // per-event total good-tower energy
+
         Long64_t nentries1 = t1 -> GetEntries();
+        sumeT1.reserve( nentries1 );
         for ( Long64_t ievt = 0; ievt < nentries1; ++ievt )
         {
             t1 -> GetEntry( ievt );
+            double evt_sum1 = 0;
             for ( size_t ich = 0; ich < energy1 -> size(); ++ich )
             {
                 if ( status1 -> at( ich ) != 1 )
@@ -92,14 +96,18 @@ int plot_tower_energy_comp(
                 }
                 h1 -> Fill( energy1 -> at( ich ) );
                 sum1 += energy1 -> at( ich );
+                evt_sum1 += energy1 -> at( ich );
                 n1++;
             }
+            sumeT1.push_back( evt_sum1 );
         }
 
         Long64_t nentries2 = t2 -> GetEntries();
+        sumeT2.reserve( nentries2 );
         for ( Long64_t ievt = 0; ievt < nentries2; ++ievt )
         {
             t2 -> GetEntry( ievt );
+            double evt_sum2 = 0;
             for ( size_t ich = 0; ich < energy2 -> size(); ++ich )
             {
                 if ( status2 -> at( ich ) != 1 )
@@ -108,8 +116,10 @@ int plot_tower_energy_comp(
                 }
                 h2 -> Fill( energy2 -> at( ich ) );
                 sum2 += energy2 -> at( ich );
+                evt_sum2 += energy2 -> at( ich );
                 n2++;
             }
+            sumeT2.push_back( evt_sum2 );
         }
 
         std::cout << det << ": before (nominal) sum=" << sum1 << " GeV over " << n1
@@ -137,6 +147,42 @@ int plot_tower_energy_comp(
 
         cv -> SaveAs( Form( "%s/tower_energy_comp_%s.png", outdir.c_str(), det.c_str() ) );
         cv -> SaveAs( Form( "%s/tower_energy_comp_%s.pdf", outdir.c_str(), det.c_str() ) );
+
+        // per-event total good-tower energy (sumeT) distribution
+        double lo = 0.0;
+        double hi = 1.0;
+        for ( double v : sumeT1 ) { if ( v > hi ) hi = v; if ( v < lo ) lo = v; }
+        for ( double v : sumeT2 ) { if ( v > hi ) hi = v; if ( v < lo ) lo = v; }
+        hi *= 1.1;
+
+        TH1F * hs1 = new TH1F( ( det + "_sumeT_before" ).c_str(), ";#Sigma E_{tower} per event [GeV];Events", 100, lo, hi );
+        TH1F * hs2 = new TH1F( ( det + "_sumeT_after" ).c_str(), "", 100, lo, hi );
+        for ( double v : sumeT1 ) { hs1 -> Fill( v ); }
+        for ( double v : sumeT2 ) { hs2 -> Fill( v ); }
+
+        std::cout << det << ": before (nominal) mean sumeT/event="
+                   << hs1 -> GetMean() << " GeV" << std::endl;
+        std::cout << det << ": after (no-noise fit) mean sumeT/event="
+                   << hs2 -> GetMean() << " GeV" << std::endl;
+
+        hs1 -> SetLineColor( kGray + 2 );
+        hs1 -> SetFillColorAlpha( kGray, 0.5 );
+        hs2 -> SetLineColor( kAzure + 2 );
+        hs2 -> SetFillColorAlpha( kAzure + 2, 0.35 );
+
+        TCanvas * cvs = new TCanvas( ( "cv_sumeT_" + det ).c_str(), "", 700, 600 );
+        cvs -> SetLogy();
+        hs1 -> SetTitle( Form( "%s per-event #Sigma E_{tower}: before vs after no-noise waveform fit", det.c_str() ) );
+        hs1 -> Draw( "HIST" );
+        hs2 -> Draw( "HIST SAME" );
+
+        TLegend * legs = new TLegend( 0.45, 0.72, 0.88, 0.86 );
+        legs -> AddEntry( hs1, "before (nominal)", "f" );
+        legs -> AddEntry( hs2, "after (no-noise fit)", "f" );
+        legs -> Draw();
+
+        cvs -> SaveAs( Form( "%s/tower_sumeT_comp_%s.png", outdir.c_str(), det.c_str() ) );
+        cvs -> SaveAs( Form( "%s/tower_sumeT_comp_%s.pdf", outdir.c_str(), det.c_str() ) );
     }
 
     return 0;
