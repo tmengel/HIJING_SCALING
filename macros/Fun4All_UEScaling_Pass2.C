@@ -74,9 +74,9 @@ void Fun4All_UEScaling_Pass2 (
     InputInit();
     InputRegister();
 
-    for ( const auto & DSTTPYE : { "CALO_CLUSTER" , "GLOBAL",  "MBD_EPD", "TRUTH_JET"} )
+    for ( const auto & DSTTPYE : { "DST_CALO_CLUSTER" , "DST_GLOBAL",  "DST_MBD_EPD", "DST_TRUTH_JET"} )
     {
-        std::string infile = Form( "DST_%s_pythia8_Jet%d_sHijing_0_20fm-%010d-%06d.root", DSTTPYE, jet_flag, run_number, segment );
+        std::string infile = Form( "%s_pythia8_Jet%d_sHijing_0_20fm-%010d-%06d.root", DSTTPYE, jet_flag, run_number, segment );
         std::cout << "\tAdding input file: " << infile << std::endl;
         auto input = new Fun4AllDstInputManager( Form( "DSTINPUT_%s", DSTTPYE ) );
         input -> AddFile( infile );
@@ -91,7 +91,6 @@ void Fun4All_UEScaling_Pass2 (
     se -> registerInputManager( ingeom );
 
     Process_Calo_Calib( ); 
-
 
     auto * rcemc = new RetowerCEMC( ); 
     rcemc -> set_towerinfo( true );

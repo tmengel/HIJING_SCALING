@@ -21,6 +21,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <limits>
 
 int CaloManip::Init( PHCompositeNode * /*topNode*/ )
 {
@@ -39,26 +41,6 @@ int CaloManip::Init( PHCompositeNode * /*topNode*/ )
     return Fun4AllReturnCodes::ABORTRUN;
   }
 
-  k_neta_hcalin = 24;
-  k_nphi_hcalin = 64;
-  k_neta_hcalout = 24;
-  k_nphi_hcalout = 64;
-  if ( std::string::npos != m_cemc_node.find("RETOWER") )
-  {
-    k_neta_cemc = 24;
-    k_nphi_cemc = 64;
-  }
-  else
-  {
-    k_neta_cemc = 96;
-    k_nphi_cemc = 256;
-  }
-
-  std::cout << "CaloManip::Init - Tower geometry: CEMC " << k_neta_cemc << "x" << k_nphi_cemc
-            << ", HCALIN " << k_neta_hcalin << "x" << k_nphi_hcalin
-            << ", HCALOUT " << k_neta_hcalout << "x" << k_nphi_hcalout
-            << std::endl;
-
   if (Verbosity() > 2 )
   {
     m_ttree -> Show(0);
@@ -74,12 +56,18 @@ int CaloManip::Init( PHCompositeNode * /*topNode*/ )
   m_ttree -> SetBranchStatus( "psi1", true );
   m_ttree -> SetBranchStatus( "psi2", true );
   m_ttree -> SetBranchStatus( "psi3", true );
+  m_ttree -> SetBranchStatus( "ncemc", true );
+  m_ttree -> SetBranchStatus( "nhcalin", true );
+  m_ttree -> SetBranchStatus( "nhcalout", true );
   m_ttree -> SetBranchStatus( "cemc_tower_energy", true );
   m_ttree -> SetBranchStatus( "cemc_tower_status", true );
   m_ttree -> SetBranchStatus( "hcalin_tower_energy", true );
   m_ttree -> SetBranchStatus( "hcalin_tower_status", true );
   m_ttree -> SetBranchStatus( "hcalout_tower_energy", true );
   m_ttree -> SetBranchStatus( "hcalout_tower_status", true );
+  m_ttree -> SetBranchAddress( "ncemc", &k_ncemc );
+  m_ttree -> SetBranchAddress( "nhcalin", &k_nhcalin );
+  m_ttree -> SetBranchAddress( "nhcalout", &k_nhcalout );
   m_ttree -> SetBranchAddress( "runnumber", &m_ttree_runnumber );
   m_ttree -> SetBranchAddress( "evtsequence", &m_ttree_evtsequence );
   m_ttree -> SetBranchAddress( "b", &m_ttree_b );
@@ -122,6 +110,7 @@ int CaloManip::Init( PHCompositeNode * /*topNode*/ )
 
     m_debug_event_tree = new TTree( "DebugEvent", "event-level SigmaET diagnostics" );
     m_debug_event_tree -> Branch( "event_id", &e_event_id, "event_id/I" );
+    m_debug_event_tree -> Branch( "sumET_hijing", e_sumET_hijing, "sumET_hijing[4]/F" );
     m_debug_event_tree -> Branch( "sumET_before", e_sumET_before, "sumET_before[4]/F" );
     m_debug_event_tree -> Branch( "sumET_after", e_sumET_after, "sumET_after[4]/F" );
     m_debug_event_tree -> Branch( "ntowers", e_ntowers, "ntowers[4]/I" );
@@ -147,8 +136,9 @@ int CaloManip::InitRun( PHCompositeNode * topNode )
     // retowered CEMC container shares the IHCal (HCALIN) 24x64 projective
     // grid (see jetbackground/RetowerCEMC), so its eta must be looked up
     // from TOWERGEOM_HCALIN rather than the native TOWERGEOM_CEMC.
-    const std::string cemc_geom_node = ( std::string::npos != m_cemc_node.find("RETOWER") )
-                                        ? "TOWERGEOM_HCALIN" : "TOWERGEOM_CEMC";
+    const bool is_retowered = ( std::string::npos != m_cemc_node.find("RETOWER") );
+    const std::string cemc_geom_node = is_retowered ? "TOWERGEOM_HCALIN" : "TOWERGEOM_CEMC";
+    m_cemc_geom_caloid = is_retowered ? RawTowerDefs::HCALIN : RawTowerDefs::CEMC;
     m_towergeom_cemc    = findNode::getClass<RawTowerGeomContainer>( topNode, cemc_geom_node );
     m_towergeom_hcalin  = findNode::getClass<RawTowerGeomContainer>( topNode, "TOWERGEOM_HCALIN" );
     m_towergeom_hcalout = findNode::getClass<RawTowerGeomContainer>( topNode, "TOWERGEOM_HCALOUT" );
@@ -264,22 +254,38 @@ int CaloManip::process_event( PHCompositeNode * topNode )
     m_event_debug_rows.clear();
   }
 
-  // cemc
-  int ntowers = cemc_towers -> size();
-  for ( auto ich = 0; ich < ntowers; ++ich )
+  // Channel-count consistency check: Pass1's reference tree and the live
+  // embedded container must have been built from the SAME node type (same
+  // retowered-vs-native grid) to be matched channel-for-channel below. A
+  // mismatch here (e.g. one side native 96x256, the other retowered 24x64)
+  // would silently misassociate towers if we matched by (ieta,iphi) instead
+  // -- so we assert on channel count and refuse to guess.
+  if ( (int) cemc_towers->size() != k_ncemc
+    || (int) hcalin_towers->size() != k_nhcalin
+    || (int) hcalout_towers->size() != k_nhcalout )
+  {
+    std::cout << PHWHERE << " FATAL: channel count mismatch between the live embedded towers and the "
+              << "HIJING-only reference tree at event " << m_event_id
+              << " -- CEMC: " << cemc_towers->size() << " vs " << k_ncemc
+              << ", HCALIN: " << hcalin_towers->size() << " vs " << k_nhcalin
+              << ", HCALOUT: " << hcalout_towers->size() << " vs " << k_nhcalout
+              << ". This means the two passes used different tower grids (e.g. retowered vs native CEMC) "
+              << "-- refusing to scale towers that cannot be reliably matched." << std::endl;
+    return Fun4AllReturnCodes::ABORTEVENT;
+  }
+
+  // cemc -- matched to the reference tree by raw channel index (see the note
+  // in CaloManip.h / CaloTree.h), not by re-deriving (ieta,iphi) on each side.
+  for ( auto ich = 0; ich < k_ncemc; ++ich )
   {
     auto * tower   = cemc_towers -> get_tower_at_channel( ich );
     if ( !tower )
-    { 
+    {
       continue;
     }
 
-    const auto key = cemc_towers -> encode_key( ich );    
-    auto ieta      = cemc_towers -> getTowerEtaBin( key );
-    auto iphi      = cemc_towers -> getTowerPhiBin( key );
-    
-    float tree_energy = m_cemc_tower_energy->at(ieta).at(iphi);
-    int tree_isgood = m_cemc_tower_status->at(ieta).at(iphi);
+    float tree_energy = m_cemc_tower_energy->at(ich);
+    int tree_isgood = m_cemc_tower_status->at(ich);
     if ( tree_isgood != 1  || !tower->get_isGood() )
     {
       continue;
@@ -298,82 +304,273 @@ int CaloManip::process_event( PHCompositeNode * topNode )
 
     if ( debug_event )
     {
+      // ieta/iphi/eta here are for the debug display ONLY -- they play no
+      // role in the physics matching above.
+      const auto key = cemc_towers -> encode_key( ich );
+      auto ieta      = cemc_towers -> getTowerEtaBin( key );
+      auto iphi      = cemc_towers -> getTowerPhiBin( key );
       float eta = m_towergeom_cemc -> get_tower_geometry(
-        RawTowerDefs::encode_towerid( RawTowerDefs::CEMC, ieta, iphi ) ) -> get_eta();
+        RawTowerDefs::encode_towerid( m_cemc_geom_caloid, ieta, iphi ) ) -> get_eta();
       debug_record_tower( "CEMC", ieta, iphi, eta, this_E, tree_energy, new_E );
     }
   }
 
-  ntowers = hcalin_towers -> size();
-  for ( auto ich = 0; ich < ntowers; ++ich )
+  for ( auto ich = 0; ich < k_nhcalin; ++ich )
   {
     auto * tower   = hcalin_towers -> get_tower_at_channel( ich );
     if ( !tower )
-    { 
+    {
       continue;
     }
 
-    const auto key = hcalin_towers -> encode_key( ich );    
-    auto ieta      = hcalin_towers -> getTowerEtaBin( key );
-    auto iphi      = hcalin_towers -> getTowerPhiBin( key );
-    
-    float tree_energy = m_hcalin_tower_energy->at(ieta).at(iphi);
-    int tree_isgood = m_hcalin_tower_status->at(ieta).at(iphi);
+    float tree_energy = m_hcalin_tower_energy->at(ich);
+    int tree_isgood = m_hcalin_tower_status->at(ich);
     if ( tree_isgood != 1  || !tower->get_isGood() )
     {
       continue;
     }
 
-    float this_E = tower -> get_energy(); // embedded
+    float this_E = tower -> get_energy(); // embedded HIJING+PYTHIA8, calibrated
     float new_E = this_E +  (tree_energy * ( m_scale_factor - 1.0 )); // apply energy scale to tree energy (UE) and add to embedded
+    tower -> set_energy( new_E ); // BUGFIX: this write-back was previously missing, making the scaling a no-op
     if ( Verbosity() > 3 )
     {
-      std::cout << PHWHERE << " HCALIN Tower channel " << ich 
-        << " new energy: " << new_E 
-        << " ( original energy: " << tower -> get_energy() << " ) " 
+      std::cout << PHWHERE << " HCALIN Tower channel " << ich
+        << " new energy: " << new_E
+        << " ( original energy: " << this_E << " ) "
         << std::endl;
+    }
+
+    if ( debug_event )
+    {
+      const auto key = hcalin_towers -> encode_key( ich );
+      auto ieta      = hcalin_towers -> getTowerEtaBin( key );
+      auto iphi      = hcalin_towers -> getTowerPhiBin( key );
+      float eta = m_towergeom_hcalin -> get_tower_geometry(
+        RawTowerDefs::encode_towerid( RawTowerDefs::HCALIN, ieta, iphi ) ) -> get_eta();
+      debug_record_tower( "HCALIN", ieta, iphi, eta, this_E, tree_energy, new_E );
     }
   }
 
-  ntowers = hcalout_towers -> size();
-  for ( auto ich = 0; ich < ntowers; ++ich )
+  for ( auto ich = 0; ich < k_nhcalout; ++ich )
   {
     auto * tower   = hcalout_towers -> get_tower_at_channel( ich );
     if ( !tower )
-    { 
+    {
       continue;
     }
 
-    const auto key = hcalout_towers -> encode_key( ich );    
-    auto ieta      = hcalout_towers -> getTowerEtaBin( key );
-    auto iphi      = hcalout_towers -> getTowerPhiBin( key );
-
-    float tree_energy = m_hcalout_tower_energy->at(ieta).at(iphi);
-    int tree_isgood = m_hcalout_tower_status->at(ieta).at(iphi);
+    float tree_energy = m_hcalout_tower_energy->at(ich);
+    int tree_isgood = m_hcalout_tower_status->at(ich);
     if ( tree_isgood != 1  || !tower->get_isGood() )
     {
       continue;
     }
 
-    float this_E = tower -> get_energy(); // embedded
+    float this_E = tower -> get_energy(); // embedded HIJING+PYTHIA8, calibrated
     float new_E = this_E +  (tree_energy * ( m_scale_factor - 1.0 )); // apply energy scale to tree energy (UE) and add to embedded
+    tower -> set_energy( new_E ); // BUGFIX: this write-back was previously missing, making the scaling a no-op
     if ( Verbosity() > 3 )
     {
-      std::cout << PHWHERE << " HCALOUT Tower channel " << ich 
-        << " new energy: " << new_E 
-        << " ( original energy: " << tower -> get_energy() << " ) "
+      std::cout << PHWHERE << " HCALOUT Tower channel " << ich
+        << " new energy: " << new_E
+        << " ( original energy: " << this_E << " ) "
         << std::endl;
     }
+
+    if ( debug_event )
+    {
+      const auto key = hcalout_towers -> encode_key( ich );
+      auto ieta      = hcalout_towers -> getTowerEtaBin( key );
+      auto iphi      = hcalout_towers -> getTowerPhiBin( key );
+      float eta = m_towergeom_hcalout -> get_tower_geometry(
+        RawTowerDefs::encode_towerid( RawTowerDefs::HCALOUT, ieta, iphi ) ) -> get_eta();
+      debug_record_tower( "HCALOUT", ieta, iphi, eta, this_E, tree_energy, new_E );
+    }
+  }
+
+  if ( debug_event )
+  {
+    debug_flush_event();
   }
 
   return Fun4AllReturnCodes::EVENT_OK;
 }
 
+bool CaloManip::is_debug_event() const
+{
+  if ( !m_debug_mode )
+  {
+    return false;
+  }
+  return std::find( m_debug_events.begin(), m_debug_events.end(), m_event_id ) != m_debug_events.end();
+}
+
+void CaloManip::debug_record_tower( const std::string & calo, int ieta, int iphi, float eta,
+                                     float e_before, float e_hijing, float e_after )
+{
+  const float coshEta = std::cosh( eta );
+  const float et_before = e_before / coshEta;
+  const float et_after  = e_after  / coshEta;
+
+  DebugRow row;
+  row.calo      = calo;
+  row.ieta      = ieta;
+  row.iphi      = iphi;
+  row.eta       = eta;
+  row.e_before  = e_before;
+  row.e_hijing  = e_hijing;
+  row.e_after   = e_after;
+  row.et_before = et_before;
+  row.et_after  = et_after;
+  m_event_debug_rows.push_back( row );
+
+  d_event_id = m_event_id;
+  std::snprintf( d_calo, sizeof(d_calo), "%s", calo.c_str() );
+  d_ieta = ieta;
+  d_iphi = iphi;
+  d_eta = eta;
+  d_e_before = e_before;
+  d_e_hijing = e_hijing;
+  d_e_after = e_after;
+  d_scale = m_scale_factor;
+  d_et_before = et_before;
+  d_et_after = et_after;
+  m_debug_tower_tree -> Fill();
+}
+
+void CaloManip::debug_flush_event()
+{
+  // index 0=CEMC, 1=HCALIN, 2=HCALOUT, 3=TOTAL
+  e_event_id = m_event_id;
+  for ( int i = 0; i < 4; ++i )
+  {
+    e_sumET_hijing[i] = 0.0;
+    e_sumET_before[i] = 0.0;
+    e_sumET_after[i] = 0.0;
+    e_ntowers[i] = 0;
+    e_ntowers_modified[i] = 0;
+    e_maxAbsDeltaET[i] = 0.0;
+    e_maxAbsDeltaET_ieta[i] = -1;
+    e_maxAbsDeltaET_iphi[i] = -1;
+  }
+
+  auto caloIndex = [] ( const std::string & calo ) -> int
+  {
+    if ( calo == "CEMC" )    return 0;
+    if ( calo == "HCALIN" )  return 1;
+    if ( calo == "HCALOUT" ) return 2;
+    return -1;
+  };
+
+  for ( const auto & row : m_event_debug_rows )
+  {
+    const int i = caloIndex( row.calo );
+    if ( i < 0 ) continue;
+
+    const float et_hijing = row.e_hijing / std::cosh( row.eta );
+    const float deltaET = row.et_after - row.et_before;
+
+    e_sumET_hijing[i] += et_hijing;
+    e_sumET_before[i] += row.et_before;
+    e_sumET_after[i]  += row.et_after;
+    e_ntowers[i]++;
+
+    e_sumET_hijing[3] += et_hijing;
+    e_sumET_before[3] += row.et_before;
+    e_sumET_after[3]  += row.et_after;
+    e_ntowers[3]++;
+
+    if ( row.e_after != row.e_before )
+    {
+      e_ntowers_modified[i]++;
+      e_ntowers_modified[3]++;
+    }
+
+    if ( std::fabs( deltaET ) > e_maxAbsDeltaET[i] )
+    {
+      e_maxAbsDeltaET[i] = std::fabs( deltaET );
+      e_maxAbsDeltaET_ieta[i] = row.ieta;
+      e_maxAbsDeltaET_iphi[i] = row.iphi;
+    }
+    if ( std::fabs( deltaET ) > e_maxAbsDeltaET[3] )
+    {
+      e_maxAbsDeltaET[3] = std::fabs( deltaET );
+      e_maxAbsDeltaET_ieta[3] = row.ieta;
+      e_maxAbsDeltaET_iphi[3] = row.iphi;
+    }
+  }
+
+  m_debug_event_tree -> Fill();
+
+  // Flush to disk immediately rather than waiting for End(): some inputs
+  // make the framework read ahead into the next event's I/O record purely
+  // to check for end-of-file, which can throw before End() is ever
+  // reached. Writing here guarantees the diagnostics for this event survive
+  // regardless of what happens afterward.
+  m_debug_tfile -> cd();
+  m_debug_tower_tree -> Write( nullptr, TObject::kOverwrite );
+  m_debug_event_tree -> Write( nullptr, TObject::kOverwrite );
+
+  // ------------------------------------------------------------------
+  // console summary
+  // ------------------------------------------------------------------
+  const char * names[4] = { "CEMC", "HCALIN", "HCALOUT", "TOTAL" };
+  std::cout << "\n================ CaloManip debug summary : Event " << m_event_id
+            << " ================\n";
+  for ( int i = 0; i < 4; ++i )
+  {
+    const float ratio = ( e_sumET_before[i] != 0.0 ) ? e_sumET_after[i] / e_sumET_before[i]
+                                                       : std::numeric_limits<float>::quiet_NaN();
+    std::cout << "-- " << names[i] << " (" << e_ntowers[i] << " towers) --\n"
+              << "  HIJING-only sum ET:             " << e_sumET_hijing[i] << " GeV\n"
+              << "  HIJING+PYTHIA calibrated ET:     " << e_sumET_before[i] << " GeV\n"
+              << "  Scaled/final sum ET:             " << e_sumET_after[i] << " GeV\n"
+              << "  Difference after-before:         " << ( e_sumET_after[i] - e_sumET_before[i] ) << " GeV\n"
+              << "  Ratio after/before:               " << ratio << "\n"
+              << "  Number of towers modified:       " << e_ntowers_modified[i] << "\n"
+              << "  Maximum |Delta ET| tower:         " << e_maxAbsDeltaET[i]
+              << " GeV  ( ieta=" << e_maxAbsDeltaET_ieta[i] << ", iphi=" << e_maxAbsDeltaET_iphi[i] << " )\n";
+  }
+
+  // top-5 towers with the largest correction, across all calorimeters
+  std::vector<DebugRow> sorted_rows = m_event_debug_rows;
+  std::sort( sorted_rows.begin(), sorted_rows.end(),
+             [] ( const DebugRow & a, const DebugRow & b )
+             {
+               return std::fabs( a.et_after - a.et_before ) > std::fabs( b.et_after - b.et_before );
+             } );
+  std::cout << "-- Towers with the largest |Delta ET| corrections --\n";
+  const int nprint = std::min<int>( 5, static_cast<int>( sorted_rows.size() ) );
+  for ( int k = 0; k < nprint; ++k )
+  {
+    const auto & row = sorted_rows[k];
+    std::cout << "  " << row.calo << " ieta=" << row.ieta << " iphi=" << row.iphi
+              << " eta=" << row.eta
+              << " | E_before=" << row.e_before << " E_hijing=" << row.e_hijing
+              << " E_after=" << row.e_after
+              << " | ET_before=" << row.et_before << " ET_after=" << row.et_after
+              << " Delta_ET=" << ( row.et_after - row.et_before ) << "\n";
+  }
+  std::cout << "======================================================================\n" << std::endl;
+
+  m_event_debug_rows.clear();
+}
+
 int CaloManip::End( PHCompositeNode * /*topNode*/ )
 {
-  
+
   m_tfile -> Close();
-  if ( Verbosity () > 0 ) 
+
+  if ( m_debug_mode && m_debug_tfile )
+  {
+    m_debug_tfile -> cd();
+    m_debug_tower_tree -> Write();
+    m_debug_event_tree -> Write();
+    m_debug_tfile -> Close();
+  }
+
+  if ( Verbosity () > 0 )
   {
     std::cout << "CaloManip::End - done" << std::endl;
   }

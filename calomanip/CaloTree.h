@@ -40,20 +40,19 @@ class CaloTree : public SubsysReco
   std::string m_hcalout_node { "" };
 
   TTree * m_tree {nullptr};
-  
+
   int m_event_id {-1};
-  int k_neta_cemc { -1 };
-  int k_nphi_cemc { -1 };
-  int k_neta_hcalin { -1 };
-  int k_nphi_hcalin { -1 };
-  int k_neta_hcalout { -1 };
-  int k_nphi_hcalout { -1 };
-  std::vector< std::vector< float > > m_cemc_tower_energy {};
-  std::vector< std::vector< int > > m_cemc_tower_status {};
-  std::vector< std::vector< float > > m_hcalin_tower_energy {};
-  std::vector< std::vector< int > > m_hcalin_tower_status {};
-  std::vector< std::vector< float > > m_hcalout_tower_energy {};
-  std::vector< std::vector< int > > m_hcalout_tower_status {};
+
+
+  int k_ncemc { -1 };
+  int k_nhcalin { -1 };
+  int k_nhcalout { -1 };
+  std::vector< float > m_cemc_tower_energy {};
+  std::vector< int > m_cemc_tower_status {};
+  std::vector< float > m_hcalin_tower_energy {};
+  std::vector< int > m_hcalin_tower_status {};
+  std::vector< float > m_hcalout_tower_energy {};
+  std::vector< int > m_hcalout_tower_status {};
 
   float m_b { 0.0 };
   float m_ep_angle { 0.0 };

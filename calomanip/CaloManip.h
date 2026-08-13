@@ -3,6 +3,8 @@
 
 #include <fun4all/SubsysReco.h>
 
+#include <calobase/RawTowerDefs.h>
+
 #include <string>
 #include <vector>
 
@@ -28,7 +30,7 @@ class CaloManip : public SubsysReco {
   int End( PHCompositeNode * /*topNode*/ ) override;
 
   void add_event_header ( const std::string & name = "EventHeader" ) { m_eventhead_node = name; }
-  void add_cemc_node    ( const std::string & name = "TOWERINFO_CALIB_CEMC_RETOWERED" ) { m_cemc_node = name; }
+  void add_cemc_node    ( const std::string & name = "TOWERINFO_CALIB_CEMC_RETOWER" ) { m_cemc_node = name; }
   void add_hcalin_node  ( const std::string & name = "TOWERINFO_CALIB_HCALIN" ) { m_hcalin_node = name; }
   void add_hcalout_node ( const std::string & name = "TOWERINFO_CALIB_HCALOUT" ) { m_hcalout_node = name; }
 
@@ -72,18 +74,19 @@ class CaloManip : public SubsysReco {
   float m_ttree_psi2 { 0.0 };
   float m_ttree_psi3 { 0.0 };
 
-  int k_neta_cemc { -1 };
-  int k_nphi_cemc { -1 };
-  int k_neta_hcalin { -1 };
-  int k_nphi_hcalin { -1 };
-  int k_neta_hcalout { -1 };
-  int k_nphi_hcalout { -1 };
-  std::vector< std::vector< float > > * m_cemc_tower_energy {};
-  std::vector< std::vector< int > >   * m_cemc_tower_status {};
-  std::vector< std::vector< float > > * m_hcalin_tower_energy {};
-  std::vector< std::vector< int > >  * m_hcalin_tower_status {};
-  std::vector< std::vector< float > > * m_hcalout_tower_energy {};
-  std::vector< std::vector< int > > * m_hcalout_tower_status {};
+  // Per-channel (not per ieta,iphi) storage, matching CaloTree's layout --
+  // see the note in CaloTree.h. Matching Pass1's reference tower to Pass2's
+  // live tower is done purely by channel index (ich), never by re-deriving
+  // (ieta,iphi) on one side and hoping it lines up with the other.
+  int k_ncemc { -1 };
+  int k_nhcalin { -1 };
+  int k_nhcalout { -1 };
+  std::vector< float > * m_cemc_tower_energy {};
+  std::vector< int >   * m_cemc_tower_status {};
+  std::vector< float > * m_hcalin_tower_energy {};
+  std::vector< int >  * m_hcalin_tower_status {};
+  std::vector< float > * m_hcalout_tower_energy {};
+  std::vector< int > * m_hcalout_tower_status {};
 
   float m_b { 0.0 };
   float m_ep_angle { 0.0 };
@@ -103,6 +106,12 @@ class CaloManip : public SubsysReco {
   RawTowerGeomContainer * m_towergeom_cemc {nullptr};
   RawTowerGeomContainer * m_towergeom_hcalin {nullptr};
   RawTowerGeomContainer * m_towergeom_hcalout {nullptr};
+  // Calorimeter ID to use when encoding the lookup key into m_towergeom_cemc.
+  // When CEMC is retowered onto the IHCal grid, m_towergeom_cemc actually
+  // points at TOWERGEOM_HCALIN, whose entries were themselves keyed with
+  // RawTowerDefs::HCALIN -- so the *geometry* calo id (HCALIN) differs from
+  // the *tower-container* calo id (CEMC) in that case.
+  RawTowerDefs::CalorimeterId m_cemc_geom_caloid { RawTowerDefs::CEMC };
 
   // debug/diagnostic mode
   bool m_debug_mode { false };
@@ -127,6 +136,7 @@ class CaloManip : public SubsysReco {
 
   // per-event summary branch variables ( index 0=CEMC, 1=HCALIN, 2=HCALOUT, 3=TOTAL )
   int e_event_id {-1};
+  float e_sumET_hijing[4] {0.0};
   float e_sumET_before[4] {0.0};
   float e_sumET_after[4] {0.0};
   int e_ntowers[4] {0};

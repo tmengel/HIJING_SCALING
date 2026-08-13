@@ -26,28 +26,6 @@ int CaloTree::Init( PHCompositeNode * /*topNode*/ )
     std::cout << "CaloTree::Init - opening file " << m_output_filename << std::endl;
   } 
   
-  k_neta_hcalin = 24;
-  k_nphi_hcalin = 64;
-  k_neta_hcalout = 24;
-  k_nphi_hcalout = 64;
-  if ( std::string::npos != m_cemc_node.find("RETOWER") )
-  {
-    k_neta_cemc = 24;
-    k_nphi_cemc = 64;
-  }
-  else
-  {
-    k_neta_cemc = 96;
-    k_nphi_cemc = 256;
-  }
-
-  std::cout << "CaloTree::Init - Tower geometry: CEMC " << k_neta_cemc << "x" << k_nphi_cemc
-            << ", HCALIN " << k_neta_hcalin << "x" << k_nphi_hcalin
-            << ", HCALOUT " << k_neta_hcalout << "x" << k_nphi_hcalout
-            << std::endl;
-
-  
-
   m_event_id = -1;
   m_tree = new TTree( "T", "T" );
   m_tree -> Branch( "event_id", &m_event_id, "event_id/I" );
@@ -61,12 +39,9 @@ int CaloTree::Init( PHCompositeNode * /*topNode*/ )
   m_tree -> Branch( "psi1", &m_psi1, "psi1/F" );
   m_tree -> Branch( "psi2", &m_psi2, "psi2/F" );
   m_tree -> Branch( "psi3", &m_psi3, "psi3/F" );
-  m_tree -> Branch( "neta_cemc", &k_neta_cemc, "neta_cemc/I" );
-  m_tree -> Branch( "nphi_cemc", &k_nphi_cemc, "nphi_cemc/I" );
-  m_tree -> Branch( "neta_hcalin", &k_neta_hcalin, "neta_hcalin/I" );
-  m_tree -> Branch( "nphi_hcalin", &k_nphi_hcalin, "nphi_hcalin/I" );
-  m_tree -> Branch( "neta_hcalout", &k_neta_hcalout, "neta_hcalout/I" );
-  m_tree -> Branch( "nphi_hcalout", &k_nphi_hcalout, "nphi_hcalout/I" );
+  m_tree -> Branch( "ncemc", &k_ncemc, "ncemc/I" );
+  m_tree -> Branch( "nhcalin", &k_nhcalin, "nhcalin/I" );
+  m_tree -> Branch( "nhcalout", &k_nhcalout, "nhcalout/I" );
   m_tree -> Branch( "cemc_tower_energy", &m_cemc_tower_energy );
   m_tree -> Branch( "cemc_tower_status", &m_cemc_tower_status );
   m_tree -> Branch( "hcalin_tower_energy", &m_hcalin_tower_energy );
@@ -92,13 +67,6 @@ int CaloTree::process_event( PHCompositeNode *topNode )
   {
     std::cout << "CaloTree::process_event - Process event " << m_event_id << std::endl;
   }
-
-  m_cemc_tower_energy.resize( k_neta_cemc, std::vector< float >( k_nphi_cemc, 0.0 ) );
-  m_cemc_tower_status.resize( k_neta_cemc, std::vector< int >( k_nphi_cemc, 0 ) );
-  m_hcalin_tower_energy.resize( k_neta_hcalin, std::vector< float >( k_nphi_hcalin, 0.0 ) );
-  m_hcalin_tower_status.resize( k_neta_hcalin, std::vector< int >( k_nphi_hcalin, 0 ) );
-  m_hcalout_tower_energy.resize( k_neta_hcalout, std::vector< float >( k_nphi_hcalout, 0.0 ) );
-  m_hcalout_tower_status.resize( k_neta_hcalout, std::vector< int >( k_nphi_hcalout, 0 ) );
 
   auto * eventhead = findNode::getClass<EventHeader>( topNode, m_eventhead_node );
   if ( !eventhead )
@@ -141,50 +109,52 @@ int CaloTree::process_event( PHCompositeNode *topNode )
     return Fun4AllReturnCodes::ABORTRUN;
   }
 
-  // cemc
-  int ntowers = cemc_towers -> size();
-  for ( auto ich = 0; ich < ntowers; ++ich )
+  // Store per-channel, in the container's own native channel order -- this
+  // is later read back in CaloManip and matched channel-for-channel against
+  // the live embedded container of the SAME node type, so no (ieta,iphi)
+  // grid-size assumption (retowered 24x64 vs native 96x256) ever needs to
+  // be made or re-derived on either side of the two passes.
+  k_ncemc = cemc_towers -> size();
+  k_nhcalin = hcalin_towers -> size();
+  k_nhcalout = hcalout_towers -> size();
+  m_cemc_tower_energy.assign( k_ncemc, 0.0 );
+  m_cemc_tower_status.assign( k_ncemc, 0 );
+  m_hcalin_tower_energy.assign( k_nhcalin, 0.0 );
+  m_hcalin_tower_status.assign( k_nhcalin, 0 );
+  m_hcalout_tower_energy.assign( k_nhcalout, 0.0 );
+  m_hcalout_tower_status.assign( k_nhcalout, 0 );
+
+  for ( auto ich = 0; ich < k_ncemc; ++ich )
   {
-    auto * tower   = cemc_towers -> get_tower_at_channel( ich );
+    auto * tower = cemc_towers -> get_tower_at_channel( ich );
     if ( !tower )
-    { 
+    {
       continue;
     }
-    const auto key = cemc_towers -> encode_key( ich );    
-    auto ieta      = cemc_towers -> getTowerEtaBin( key );
-    auto iphi      = cemc_towers -> getTowerPhiBin( key );
-    m_cemc_tower_energy[ieta][iphi] = tower -> get_energy();
-    m_cemc_tower_status[ieta][iphi] = tower -> get_isGood();
+    m_cemc_tower_energy[ich] = tower -> get_energy();
+    m_cemc_tower_status[ich] = tower -> get_isGood();
   }
-  ntowers = hcalin_towers -> size();
-  for ( auto ich = 0; ich < ntowers; ++ich )
+  for ( auto ich = 0; ich < k_nhcalin; ++ich )
   {
-    auto * tower   = hcalin_towers -> get_tower_at_channel( ich );
+    auto * tower = hcalin_towers -> get_tower_at_channel( ich );
     if ( !tower )
-    { 
+    {
       continue;
     }
-    const auto key = hcalin_towers -> encode_key( ich );    
-    auto ieta      = hcalin_towers -> getTowerEtaBin( key );
-    auto iphi      = hcalin_towers -> getTowerPhiBin( key );
-    m_hcalin_tower_energy[ieta][iphi] = tower -> get_energy();
-    m_hcalin_tower_status[ieta][iphi] = tower -> get_isGood();
+    m_hcalin_tower_energy[ich] = tower -> get_energy();
+    m_hcalin_tower_status[ich] = tower -> get_isGood();
   }
-  ntowers = hcalout_towers -> size();
-  for ( auto ich = 0; ich < ntowers; ++ich )
+  for ( auto ich = 0; ich < k_nhcalout; ++ich )
   {
-    auto * tower   = hcalout_towers -> get_tower_at_channel( ich );
+    auto * tower = hcalout_towers -> get_tower_at_channel( ich );
     if ( !tower )
-    { 
+    {
       continue;
     }
-    const auto key = hcalout_towers -> encode_key( ich );    
-    auto ieta      = hcalout_towers -> getTowerEtaBin( key );
-    auto iphi      = hcalout_towers -> getTowerPhiBin( key );
-    m_hcalout_tower_energy[ieta][iphi] = tower -> get_energy();
-    m_hcalout_tower_status[ieta][iphi] = tower -> get_isGood();
+    m_hcalout_tower_energy[ich] = tower -> get_energy();
+    m_hcalout_tower_status[ich] = tower -> get_isGood();
   }
-  
+
   m_tree -> Fill();
 
   return Fun4AllReturnCodes::EVENT_OK;
