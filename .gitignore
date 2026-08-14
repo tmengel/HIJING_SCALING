@@ -51,6 +51,11 @@ tmtags
 .vscode
 ._*
 
+*.out
+*.err
+logs/
+
+*.root
 # For redcar:
 .redcar
 

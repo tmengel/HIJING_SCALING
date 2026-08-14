@@ -186,17 +186,17 @@ void Fun4All_UEScaling_Pass1 (
 
     Process_Calo_Calib( );
 
-    auto * rcemc = new RetowerCEMC( );
-    rcemc -> set_towerinfo( true );
-    rcemc -> set_frac_cut( 1.0 );
-    rcemc -> set_do_rescale( false );
-    rcemc -> set_towerNodePrefix( HIJETS::tower_prefix );
-    rcemc -> Verbosity( Enable::VERBOSITY );
-    se -> registerSubsystem( rcemc );
+    // auto * rcemc = new RetowerCEMC( );
+    // rcemc -> set_towerinfo( true );
+    // rcemc -> set_frac_cut( 1.0 );
+    // rcemc -> set_do_rescale( false );
+    // rcemc -> set_towerNodePrefix( HIJETS::tower_prefix );
+    // rcemc -> Verbosity( Enable::VERBOSITY );
+    // se -> registerSubsystem( rcemc );
 
     auto * out = new CaloTree( outfile );
     out -> add_event_header ( "EventHeader" );
-    out -> add_cemc_node ( "TOWERINFO_CALIB_CEMC_RETOWER" );
+    out -> add_cemc_node ( "TOWERINFO_CALIB_CEMC" );
     out -> add_hcalin_node ( "TOWERINFO_CALIB_HCALIN" );
     out -> add_hcalout_node ( "TOWERINFO_CALIB_HCALOUT" );
     out -> Verbosity( Enable::VERBOSITY  );

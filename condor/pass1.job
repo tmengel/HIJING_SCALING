@@ -1,0 +1,13 @@
+initialDir          = /sphenix/user/tmengel/hijing_scaling/HIJING_SCALING/condor
+Universe            = vanilla
+Executable          = $(initialDir)/pass1.sh
+PeriodicHold        = (NumJobStarts>=1 && JobStatus == 1)
+request_memory      = 6GB
+Priority            = 20
+batch_name          = pass1
+condorDir           = $(initialDir)/logs/pass1
+Output              = $(condorDir)/pass1-$(PROCESS).out
+Error               = $(condorDir)/pass1-$(PROCESS).err
+Log                 = /tmp/condorjob-tmengel.log
+Arguments           = "$(PROCESS)"
+Queue 15000

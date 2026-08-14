@@ -1,0 +1,14 @@
+initialDir          = /sphenix/user/tmengel/JetUESub-JSTG-TF03/condor
+Universe            = vanilla
+Executable          = $(initialDir)/overlay_pass2.sh
+PeriodicHold        = (NumJobStarts>=1 && JobStatus == 1)
+request_memory      = 3GB
+Priority            = 20
+jetid               = 30
+batch_name          = pass2_$(jetid)
+condorDir           = $(initialDir)/logs/jet$(jetid)
+Output              = $(condorDir)/pass2-$(PROCESS).out
+Error               = $(condorDir)/pass2-$(PROCESS).err
+Log                 = /tmp/condorjob-tmengel.log
+Arguments           = "$(PROCESS) $(jetid)"
+Queue 10000

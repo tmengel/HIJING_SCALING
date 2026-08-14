@@ -91,6 +91,15 @@ void Fun4All_UEScaling_Pass2 (
     se -> registerInputManager( ingeom );
 
     Process_Calo_Calib( ); 
+    
+    auto * cm  = new CaloManip( embfile.c_str() );
+    cm -> add_event_header ( "EventHeader" );
+    cm -> add_cemc_node ( "TOWERINFO_CALIB_CEMC" );
+    cm -> add_hcalin_node ( "TOWERINFO_CALIB_HCALIN" );
+    cm -> add_hcalout_node ( "TOWERINFO_CALIB_HCALOUT" );
+    cm -> set_scale_factor ( 1.11 );
+    cm -> Verbosity ( Enable::VERBOSITY  );
+    se -> registerSubsystem( cm );
 
     auto * rcemc = new RetowerCEMC( ); 
     rcemc -> set_towerinfo( true );
@@ -100,16 +109,6 @@ void Fun4All_UEScaling_Pass2 (
     rcemc -> Verbosity( Enable::VERBOSITY );
     se -> registerSubsystem( rcemc );
 
-    
-    auto * cm  = new CaloManip( embfile.c_str() );
-    cm -> add_event_header ( "EventHeader" );
-    cm -> add_cemc_node ( "TOWERINFO_CALIB_CEMC_RETOWER" );
-    cm -> add_hcalin_node ( "TOWERINFO_CALIB_HCALIN" );
-    cm -> add_hcalout_node ( "TOWERINFO_CALIB_HCALOUT" );
-    cm -> set_scale_factor ( 1.11 );
-    cm -> Verbosity ( Enable::VERBOSITY  );
-    se -> registerSubsystem( cm );
-    
     auto * out = new Fun4AllDstOutputManager( "DSTOUTPUT", outfile );
     // if these are left then process_calo_calib will overwrite the overlayed enregies
     out -> StripNode( "TOWERS_CEMC" );
@@ -117,7 +116,6 @@ void Fun4All_UEScaling_Pass2 (
     out -> StripNode( "TOWERS_HCALOUT" );
     out -> Verbosity( Enable::VERBOSITY );
     se -> registerOutputManager( out );
-
 
     se -> run( nEvents );
     se -> End( );   

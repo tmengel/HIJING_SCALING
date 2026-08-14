@@ -6,24 +6,24 @@ source $OPT_SPHENIX/bin/setup_local.sh $INSTALLDIR
 
 echo "Running nominal mb hijing with waveform fit"
 embfile="CALO_TREE_noNoise_hijing31_pass1-00000.root"
-# root -l -q -b "Fun4All_UEScaling_Pass1.C(10, 31, 0, \"${embfile}\", true)"
-# echo $?
+root -l -q -b "Fun4All_UEScaling_Pass1.C(10, 31, 0, \"${embfile}\", true)"
+echo $?
 
 jetid=10
 echo "Running nominal mb hijing with waveform fit for jetid $jetid"
 outfile="DST_SCALED_jet${jetid}_hijing31_pass2-00000.root"
-# root -l -q -b "Fun4All_UEScaling_Pass2.C(10, 31, 0, ${jetid}, \"${embfile}\", \"${outfile}\")"
-# echo $?
+root -l -q -b "Fun4All_UEScaling_Pass2.C(10, 31, 0, ${jetid}, \"${embfile}\", \"${outfile}\")"
+echo $?
 
 echo "Checking output DST"
 dstoutfile="CALO_TREE_DST_CHECK_sHijing_0_20fm-00000031-00000.root"
-# root -l -q -b "Fun4All_UEScaling_CheckDst.C(10, \"${outfile}\", \"${dstoutfile}\")"
+root -l -q -b "Fun4All_UEScaling_CheckDst.C(10, \"${outfile}\", \"${dstoutfile}\")"
 echo $?
 
-# echo "Checking output DST nominal"
+echo "Checking output DST nominal"
 dstoutfile_nominal="CALO_TREE_DST_CHECK_nominal_emb_0_20fm-00000031-00000.root"
 root -l -q -b "Fun4All_UEScaling_CheckDst.C(10, \"${outfile}\", \"${dstoutfile_nominal}\", true)"
-# echo $?
+echo $?
 
 echo "Making plots"
 outdir="scaled_plots"
